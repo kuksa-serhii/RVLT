@@ -1,3 +1,4 @@
+# app/config.py
 from __future__ import annotations
 
 import os
@@ -12,6 +13,54 @@ load_dotenv()
 # Корінь проекту
 ROOT = Path(__file__).resolve().parent
 
+# --- Словник профілів запуску ---
+# Кожен профіль описує один потік перекладу
+
+PROFILES: Dict[str, Dict[str, Any]] = {
+    # -------------------------------------------------------------------------
+    "understand": {
+        "description": "🟢 Я СЛУХАЮ (EN -> UK). Слухає Zoom, перекладає мені в навушники.",
+        # Вхід: Віртуальний кабель, куди Zoom/Teams надсилає аудіо
+        # (Налаштовується в Zoom/Teams Output)
+        "input_device": "CABLE Output (VB-Audio Virtual ",
+        
+        # Вихід: Ваші фізичні навушники
+        # (Назва з вашого скріншоту image_199adc.png)
+        "output_device": "Навушники (2- HD65)",
+        
+        # Мова, яку ми очікуємо почути (для розпізнавання)
+        "source_lang": "en-GB", 
+        
+        # Мова, на яку перекладаємо
+        "target_lang": "uk",
+        
+        # Голос для синтезу перекладу (український)
+        "tts_voice": "uk-UA-AlinaNeural",
+    },
+    # -------------------------------------------------------------------------
+    "answer": {
+        "description": "🟣 Я ГОВОРЮ (UK -> EN). Слухає мій мікрофон, перекладає в Zoom/Teams.",
+        
+        # Вхід: Ваш фізичний мікрофон
+        # (Назва з вашого скріншоту image_199adc.png)
+        "input_device": "Головной телефон (2- HD65)",
+        
+        # Вихід: Віртуальний кабель "B", який Zoom слухає як мікрофон
+        # (Потрібно встановити VB-CABLE B)
+        "output_device": "CABLE-B Input (VB-Audio", 
+        
+        # Мова, якою ви говорите
+        "source_lang": "uk-UA",
+        
+        # Мова, на яку перекладаємо
+        "target_lang": "en",
+        
+        # Голос для синтезу перекладу (британський)
+        "tts_voice": "en-GB-RyanNeural",
+    }
+    # -------------------------------------------------------------------------
+}
+
 
 class _Settings:
     """
@@ -22,38 +71,28 @@ class _Settings:
     def __init__(self) -> None:
         self._data: Dict[str, Any] = {
             "audio": {
-                "sample_rate": 48000, # Частота дискретизації пристрою (HD65)
-                "frame_ms": 20,       # Розмір аудіофрейму для sounddevice
-                
-                # --- Аудіопристрої (Встановлюються відповідно до Voicemeeter/CABLE) ---
-                # Клієнт слухає: CABLE Output (куди Voicemeeter злив мову співрозмовника та Ваш мікрофон)
-                "input_remote": "CABLE Output (VB-Audio Virtual ", 
-                # Клієнт відтворює переклад: CABLE Input (Teams/Zoom слухає це як мікрофон)
-                "output_user_headphones": "CABLE Input (VB-Audio Virtual C", 
+                # Спільні налаштування
+                "sample_rate": 48000,
+                "frame_ms": 20,
                 "prefer_hostapi": "Windows WASAPI"
             },
             
             # --- ПІДКЛЮЧЕННЯ ДО AZURE SPEECH SERVICE ---
             "azure": {
-                "speech_key": os.getenv("AZURE_SPEECH_KEY", ""), # Ключ для Speech Service
-                "speech_region": os.getenv("AZURE_SPEECH_REGION", "westeurope"), # Регіон Azure
-                # Високоякісні голоси для синтезу мови (TTS)
-                "voice_uk": "uk-UA-AlinaNeural",  # Український голос
-                "voice_en": "en-GB-RyanNeural",   # Британський голос
-            },
-            
-            # --- КОНФІГУРАЦІЯ ПЕРЕКЛАДУ ---
-            "translation": {
-                # Мови, на які ми перекладаємо (для двостороннього перекладу)
-                "target_languages": ["uk", "en"], 
-                # Мова для розпізнавання: "auto-detect"
+                "speech_key": os.getenv("AZURE_SPEECH_KEY", ""),
+                "speech_region": os.getenv("AZURE_SPEECH_REGION", "uksouth"), #
             },
             
             # --- ЛОГУВАННЯ ---
             "logging": {
-                "level": "INFO", # Рівень логування: DEBUG | INFO | WARNING | ERROR
+                "level": "INFO",
             },
         }
+    
+    # Додаємо профілі до об'єкта
+    @property
+    def profiles(self) -> Dict[str, Dict[str, Any]]:
+        return PROFILES
         
     # --- public dict-like accessors ---
     @property
@@ -67,10 +106,6 @@ class _Settings:
     @property
     def azure(self) -> Dict[str, Any]:
         return self._data["azure"]
-    
-    @property
-    def translation(self) -> Dict[str, Any]:
-        return self._data.get("translation", {})
 
 # Singleton-like settings instance
 settings = _Settings()

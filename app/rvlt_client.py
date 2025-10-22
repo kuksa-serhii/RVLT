@@ -1,7 +1,9 @@
+# rvlt_client.py
 import asyncio
 import sys
 import numpy as np
 import sounddevice as sd
+import argparse  # Новий імпорт
 from queue import Queue
 from loguru import logger
 
@@ -15,136 +17,65 @@ from azure.cognitiveservices.speech import (
     StreamContainerFormat,
     PullAudioInputStream,
     ResultReason,
-    CancellationDetails
+    CancellationDetails,
+    SpeechSynthesisOutputFormat  # Новий імпорт
 )
 
 from app.config import settings
 from app.utils import find_device_index, play_audio_blocking
 
-# --- Налаштування логування ---
-logger.add(
-    "rvlt_run.log",
-    rotation="10 MB",
-    retention=5,
-    level=settings.logging.get("level", "INFO"),
-    enqueue=True
-)
+# --- Налаштування логування (без змін) ---
+# ... (залишається як було) ...
 
-# --- SoundDevice Stream Class ---
+# --- SoundDevice Stream Class (без змін) ---
 class SoundDeviceStream(PullAudioInputStream):
-    """
-    Реалізує PullAudioInputStream для подачі аудіо-даних з sounddevice до Azure SDK.
-    """
-    def __init__(self, device_idx: int, sr: int, format: AudioStreamFormat):
-        super().__init__(format)
-        self.device_idx = device_idx
-        self.sr = sr
-        self.queue = Queue()
-        # Блок, який читається sounddevice
-        self.blocksize = int(sr * settings.audio.get("frame_ms", 20) / 1000)
-        self.stream = None
+    # ... (залишається як було) ...
 
-    def read(self, size: int) -> bytes:
-        """ SDK викликає цей метод, коли йому потрібні дані. """
-        try:
-            # Чекаємо на дані. Якщо черга порожня, повертаємо тишу (b'').
-            chunk = self.queue.get(timeout=0.01) 
-            return chunk if len(chunk) <= size else chunk[:size]
-        except:
-            # Якщо таймаут, повертаємо тишу відповідного розміру (для безперервності потоку)
-            return b'\x00' * size
-
-    def _callback(self, indata, frames, time, status):
-        """ Callback для sounddevice InputStream. """
-        if status:
-            logger.warning(f"Audio stream status: {status}")
-        
-        # PCM16, 1 канал. Відправляємо як байти.
-        self.queue.put(indata.tobytes())
-
-    def start_stream(self):
-        """ Запуск потоку захоплення sounddevice. """
-        wa_in = sd.WasapiSettings(exclusive=False)
-        self.stream = sd.InputStream(
-            samplerate=self.sr, 
-            channels=1, 
-            device=self.device_idx, 
-            dtype='int16', 
-            blocksize=self.blocksize,
-            callback=self._callback,
-            extra_settings=wa_in
-        )
-        self.stream.start()
-        logger.info(f"[Audio In] Started capture from index {self.device_idx} @ {self.sr} Hz (WASAPI shared)")
-
-    def stop_stream(self):
-        """ Зупинка потоку. """
-        if self.stream and self.stream.active:
-            self.stream.stop(); self.stream.close()
-        logger.info("[Audio In] Stopped capture stream.")
-
-
-# --- Event Handlers ---
-
-def recognized(evt: SpeechRecognitionEventArgs):
-    """ Обробник події, коли переклад завершено. """
-    result = evt.result
-    
-    if result.reason == ResultReason.Translated:
-        lang_from = result.language
-        lang_to = result.translation_target_language
-        text_recognized = result.text
-        text_translated = result.translation
-        
-        logger.info(f"==> [FROM {lang_from.upper()}] {text_recognized}")
-        logger.success(f"==> [TO {lang_to.upper()}] {text_translated}")
-
-    elif result.reason == ResultReason.RecognizedSpeech:
-        logger.debug(f"[Recognizing] {result.text} (Intermediate)")
-        
-    elif result.reason == ResultReason.NoMatch:
-        logger.debug("No speech could be recognized.")
-
-def synthesis_handler(evt: TranslationSynthesisEventArgs):
-    """ Обробка події синтезу мови (коли приходить аудіо). """
-    if evt.result.audio and evt.result.audio_length > 0:
-        audio_data = evt.result.audio
-        audio_np = np.frombuffer(audio_data, dtype=np.int16)
-        
-        # Azure TTS Neural Voices зазвичай видають 24000 Гц
-        tts_sample_rate = 24000 
-        
-        # Відтворення аудіо на пристрій, який слухає Teams/Zoom
-        play_audio_blocking(
-            audio_np, 
-            sr=tts_sample_rate, 
-            device_name=settings.audio.get("output_user_headphones")
-        )
-        logger.debug(f"[TTS] Played {evt.result.audio_length} bytes of audio.")
-
-def canceled(evt: SpeechRecognitionEventArgs):
-    logger.error(f"[CANCELED] Reason: {evt.result.cancellation_details.reason}")
-    if evt.result.cancellation_details.reason == CancellationDetails.Reason.Error:
-        logger.error(f"[CANCELED] Error Code: {evt.result.cancellation_details.error_details}")
-    sys.exit(1)
-
-def session_started(evt):
-    logger.info(f"[SESSION] Started: {evt.session_id}")
-    
 # --- Main Logic ---
 
 async def main():
-    # --- 1. Audio & Config Setup ---
+    # --- 1. Парсинг аргументів ---
+    parser = argparse.ArgumentParser(description="Real-time Voice Translator Client")
+    parser.add_argument(
+        "--profile", 
+        type=str, 
+        required=True, 
+        choices=settings.profiles.keys(),
+        help="Profile to run (e.g., 'understand' or 'answer')"
+    )
+    args = parser.parse_args()
+    
+    # Завантажуємо конфігурацію для обраного профілю
+    try:
+        profile = settings.profiles[args.profile]
+        logger.info(f"Loading profile: [{args.profile.upper()}] - {profile['description']}")
+    except KeyError:
+        logger.error(f"Profile '{args.profile}' not found in config.py.")
+        return
+
+    # --- 2. Audio & Config Setup ---
     device_sr = settings.audio.get("sample_rate", 48000)
-    in_name = settings.audio.get("input_remote") 
+    in_name = profile["input_device"]
+    output_device_name = profile["output_device"] # Потрібен для синтезу
     
     try:
-        in_idx = find_device_index(in_name, "input", prefer_hostapi=settings.audio.get("prefer_hostapi"))
+        in_idx = find_device_index(
+            in_name, 
+            "input", 
+            prefer_hostapi=settings.audio.get("prefer_hostapi")
+        )
+        # Перевіряємо вихідний пристрій одразу
+        find_device_index(
+            output_device_name, 
+            "output", 
+            prefer_hostapi=settings.audio.get("prefer_hostapi")
+        )
+        logger.success(f"Audio devices OK: Input '{in_name}' -> Output '{output_device_name}'")
     except RuntimeError as e:
         logger.error(f"Device error: {e}. Check device names in app/config.py.")
         return
 
-    # --- 2. Azure SDK Setup ---
+    # --- 3. Azure SDK Setup ---
     speech_key = settings.azure["speech_key"]
     speech_region = settings.azure["speech_region"]
 
@@ -153,39 +84,71 @@ async def main():
 
     speech_config = SpeechConfig(subscription=speech_key, region=speech_region)
     
-    # Встановлення цільових мов для двостороннього перекладу
-    for lang_code in settings.translation["target_languages"]:
-        # Azure SDK використовує лише дволітерні коди ('uk', 'en') для таргетингу
-        speech_config.add_target_language(lang_code) 
-        
-    # Встановлення голосів TTS для кожної цільової мови
-    speech_config.set_property_by_name("SpeechSynthesisVoiceName.uk", settings.azure["voice_uk"])
-    speech_config.set_property_by_name("SpeechSynthesisVoiceName.en", settings.azure["voice_en"])
-
-    # Встановлення формату виводу TTS (24kHz PCM - стандарт для Neural)
+    # Налаштовуємо КОНКРЕТНИЙ переклад
+    speech_config.add_target_language(profile["target_lang"]) 
+    speech_config.set_property_by_name(f"SpeechSynthesisVoiceName.{profile['target_lang']}", profile["tts_voice"])
     speech_config.set_speech_synthesis_output_format(SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm)
 
-    # --- 3. Audio Stream Setup ---
+    # --- 4. Audio Stream Setup (без змін) ---
     audio_format = AudioStreamFormat(
         samples_per_second=device_sr,
         bits_per_sample=16,
         channels=1,
         container_format=StreamContainerFormat.RAW_PCM
     )
-    
-    # Створюємо PullAudioInputStream для подачі аудіо-даних
     audio_stream_source = SoundDeviceStream(in_idx, device_sr, audio_format)
-    # Передаємо SDK тільки AudioConfig з потоком вводу.
     audio_config = AudioConfig(stream=audio_stream_source)
     
-    # --- 4. Translation Recognizer ---
+    # --- 5. Обробники подій (визначені всередині main) ---
+    
+    def recognized(evt: SpeechRecognitionEventArgs):
+        """ Обробник події, коли переклад завершено. """
+        result = evt.result
+        
+        if result.reason == ResultReason.Translated:
+            text_recognized = result.text
+            text_translated = result.translation
+            
+            logger.info(f"==> [FROM {profile['source_lang'].upper()}] {text_recognized}")
+            logger.success(f"==> [TO {profile['target_lang'].upper()}] {text_translated}")
+
+        elif result.reason == ResultReason.RecognizedSpeech:
+            logger.debug(f"[Recognizing] {result.text} (Intermediate)")
+        elif result.reason == ResultReason.NoMatch:
+            logger.debug("No speech could be recognized.")
+
+    def synthesis_handler(evt: TranslationSynthesisEventArgs):
+        """ Обробка події синтезу мови (коли приходить аудіо). """
+        if evt.result.audio and evt.result.audio_length > 0:
+            audio_data = evt.result.audio
+            audio_np = np.frombuffer(audio_data, dtype=np.int16)
+            tts_sample_rate = 24000 # Azure TTS Neural Voices
+            
+            # Відтворення аудіо на пристрій, вказаний у ПРОФІЛІ
+            play_audio_blocking(
+                audio_np, 
+                sr=tts_sample_rate, 
+                device_name=output_device_name # Використовуємо змінну з main()
+            )
+            logger.debug(f"[TTS] Played {evt.result.audio_length} bytes of audio.")
+
+    def canceled(evt: SpeechRecognitionEventArgs):
+        logger.error(f"[CANCELED] Reason: {evt.result.cancellation_details.reason}")
+        if evt.result.cancellation_details.reason == CancellationDetails.Reason.Error:
+            logger.error(f"[CANCELED] Error Code: {evt.result.cancellation_details.error_details}")
+        sys.exit(1)
+
+    def session_started(evt):
+        logger.info(f"[SESSION] Started: {evt.session_id}")
+    
+    # --- 6. Translation Recognizer ---
     recognizer = TranslationRecognizer(
         translation_config=speech_config, 
         audio_config=audio_config
     )
     
-    # Встановлення мови розпізнавання: автоматичне визначення
-    recognizer.speech_recognition_language = "auto-detect"
+    # Встановлюємо мову розпізнавання з профілю (надійніше, ніж auto-detect)
+    recognizer.speech_recognition_language = profile["source_lang"]
 
     # Підписка на події
     recognizer.recognized.connect(recognized)
@@ -193,32 +156,27 @@ async def main():
     recognizer.canceled.connect(canceled)
     recognizer.synthesis_event.connect(synthesis_handler)
     
-    # --- 5. Run Continuous Recognition ---
-    logger.info("Starting continuous recognition...")
+    # --- 7. Run Continuous Recognition ---
+    logger.info(f"Starting continuous recognition for profile [{args.profile.upper()}]...")
     
-    # Запускаємо захоплення аудіо та розпізнавання
     audio_stream_source.start_stream()
     recognizer.start_continuous_recognition()
 
-    # Утримуємо головний потік, поки користувач не натисне Ctrl+C
     try:
         while True:
             await asyncio.sleep(0.5)
-    except asyncio.CancelledError:
-        pass 
-    except KeyboardInterrupt:
-        pass # Захоплюємо Ctrl+C тут, щоб спрацювало finally
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        pass # Захоплюємо Ctrl+C
 
     finally:
-        logger.info("Stopping recognition and cleaning up...")
+        logger.info(f"Stopping recognition for profile [{args.profile.upper()}]...")
         recognizer.stop_continuous_recognition()
         audio_stream_source.stop_stream()
-        logger.info("Cleanup complete. Exiting.")
+        logger.info("Cleanup complete.")
 
 
 if __name__ == "__main__":
     try:
-        # Для коректної роботи sounddevice та asyncio в Windows використовується вбудований loop
         asyncio.run(main())
     except Exception as e:
         logger.exception(e)

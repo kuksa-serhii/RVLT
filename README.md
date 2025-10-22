@@ -1,94 +1,183 @@
 🎤 Realtime Voice Live Translator (RVLT)
 
-Цей проєкт реалізує двосторонній голосовий переклад у реальному часі (Українська $\leftrightarrow$ Англійська) з мінімальною затримкою, використовуючи спеціалізований Azure AI Speech Translator API. Ідеально підходить для важливих дзвінків (Teams, Zoom).
+This project implements real-time, two-way voice translation (Ukrainian $\leftrightarrow$ English) with minimal latency, using Azure AI Speech Services. The architecture uses two independent processes for simultaneous "understanding" (🟢 EN $\to$ UK) and "answering" (🟣 UK $\to$ EN), making it ideal for important calls (Teams, Zoom, Meet).
 
-1. Попередня Підготовка (Azure & Python)
+1. 🛠️ Prerequisites (Azure & Python)
 
-Створення Ресурсу Azure: Увійдіть у портал Azure та створіть ресурс Speech Service. Збережіть Ключ (Key) та Регіон (Location/Region).
+1. Create an Azure Resource
+Log in to the Azure Portal and create a Speech Service resource. Save the Key and Region [cite: .env].
 
-Налаштування Середовища:
+2. Set up the Environment
 
-# Створіть віртуальне середовище (рекомендовано)
+# Create a virtual environment (recommended)
 python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-.venv\Scripts\activate     # Windows
 
-# Встановіть залежності
+# Activate it:
+# Windows (PowerShell)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.venv\Scripts\activate
+ 
+# Linux/macOS
+source .venv/bin/activate
+
+
+3. Install Dependencies
+
+# Upgrade pip and install libraries
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 
-Конфігурація Ключів: Створіть файл .env та додайте свої дані:
+[cite: requirements.txt]
+
+4. Configure Keys
+Create a .env file in the project root and add your credentials [cite: .env]:
 
 # .env
-AZURE_SPEECH_KEY="ВАШ_КЛЮЧ_З_AZURE"
-AZURE_SPEECH_REGION="westeurope" # Ваш регіон
+AZURE_SPEECH_KEY="YOUR_AZURE_KEY"
+AZURE_SPEECH_REGION="uksouth" # Or your region [cite: .env]
 
 
-2. Налаштування Аудіо Маршрутизації (Windows/Voicemeeter)
+2. 🎧 Audio Setup ("2-Cable" Architecture)
 
-Цей етап є критичним для забезпечення двосторонньої роботи. Ми будемо використовувати VB-CABLE Virtual Audio Device (або Voicemeeter) для перенаправлення звуку.
+This is a critical step. We are not using Voicemeeter, but instead setting up a clean routing system using two virtual audio cables.
 
-Необхідні Пристрої (як у config.py):
+Software Requirements:
 
-AI Input (Клієнт слухає): CABLE Output (VB-Audio Virtual 
+VB-CABLE A (standard, CABLE Input/CABLE Output)
 
-AI Output (Клієнт відтворює): CABLE Input (VB-Audio Virtual C
+VB-CABLE B (additional, CABLE-B Input/CABLE-B Output)
 
-Ваш Слух: Навушники (2- HD65)
+Download and install both from VB-Audio Software.
 
-Налаштування Voicemeeter (Обов'язково)
+Routing Diagram
 
-Необхідно, щоб Voicemeeter змішував Аудіо Співрозмовника та Ваш Мікрофон в один канал, який слухає AI, і щоб переклад від AI йшов у віртуальний мікрофон дзвінка.
+Audio Flow
 
-№
+Source
 
-Напрямок
+Destination
 
-Де налаштувати
+AI Process?
 
-Призначення
+Zoom Audio (Out)
 
-I.
+Zoom/Teams (Speaker)
 
-Teams/Zoom Output
+CABLE Input (A)
 
-Teams/Zoom Audio Settings (Speaker)
+🟢 Understand
 
-Встановіть на CABLE Input
+Your Microphone
 
-II.
+Your Phys. Microphone
 
-Teams/Zoom Input
+(Directly to AI)
 
-Teams/Zoom Audio Settings (Microphone)
+🟣 Answer
 
-Встановіть на CABLE Input (AI буде говорити сюди)
+Translation (To You)
 
-III.
+🟢 Understand
 
-Voicemeeter Mix (B1)
+Your Headphones
 
-Віртуальний вихід Voicemeeter (наприклад, B1)
+-
 
-Спрямуйте на CABLE Output (це AI Input Device)
+Translation (To Them)
 
-IV.
+🟣 Answer
 
-AI Client Output
+CABLE-B Input (B)
 
-(Встановлено у config.py)
+-
 
-Спрямовано на CABLE Input (Це мікрофон Teams/Zoom)
+Audio to Zoom (In)
 
-Суть: Всі вхідні аудіо (ваші та співрозмовника) мають бути змішані і надіслані на CABLE Output. Клієнт RVLT слухає цей CABLE Output. Переклад від RVLT надсилається на CABLE Input, який Teams/Zoom використовує як свій мікрофон.
+-
 
-3. Запуск
+CABLE-B Input (B)
 
-Переконайтеся, що Voicemeeter налаштований та активний.
+Zoom/Teams (Mic)
 
-Запустіть клієнт:
+Step 1: Configure Zoom / Teams / Meet
 
-python -m app.rvlt_client
+Speaker (What the app outputs):
+CABLE Input (VB-Audio Virtual Cable)
+
+Microphone (What the app listens to):
+CABLE-B Input (VB-Audio Cable B)
+
+Step 2: Configure Windows ("Listen")
+
+To ensure you hear both the original Zoom audio and the AI translation:
+
+Open Sound Settings (Windows).
+
+Go to Sound Control Panel.
+
+Open the Recording tab.
+
+Find CABLE Output (A), click Properties.
+
+Go to the Listen tab.
+
+Check the box "Listen to this device".
+
+In the "Playback through" dropdown, select your physical headphones (e.g., Навушники (2- HD65) [cite: config.py]).
+
+Now, all audio from Zoom (CABLE A) will go to both the AI (for translation) and your ears (original audio).
+
+3. ⚙️ Configuration (app/config.py)
+
+The script is already configured for two profiles: understand (🟢) and answer (🟣) [cite: config.py].
+
+Your only task is to verify that the device names in app/config.py match the names in your system.
+
+# app/config.py (example names from your system)
+PROFILES = {
+    "understand": {
+        "input_device": "CABLE Output (VB-Audio Virtual ", # [cite: config.py]
+        "output_device": "Навушники (2- HD65)",         # [cite: config.py]
+        #...
+    },
+    "answer": {
+        "input_device": "Головной телефон (2- HD65)",   # [cite: config.py]
+        "output_device": "CABLE-B Input (VB-Audio",       # [cite: config.py]
+        #...
+    }
+}
 
 
-Почніть розмову. Система автоматично виявить мову і почне перекладати.
+4. 🩺 Diagnostics
+
+If something doesn't work, use the built-in diagnostics script diag_audio.py [cite: diag_audio.py].
+
+1. List all your audio devices:
+Run python -m app.diag_audio --list. This will show the exact names you need to copy into config.py.
+
+2. Run a full check:
+Run python -m app.diag_audio --full. This test will [cite: diag_audio.py]:
+
+Play a test tone to your headphones (checks the output_device from the understand profile).
+
+Listen to your microphone (checks the input_device from the answer profile).
+
+5. 🚀 Launch
+
+Ensure your audio settings (Step 2) are active.
+
+Run run_translator.bat:
+
+.\run_translator.bat
+
+
+[cite: run_translator.bat]
+
+This script will automatically open two separate console windows [cite: run_translator.bat]:
+
+"Translator (Understand EN->UK)": Runs the 🟢 understand profile [cite: config.py]. It listens to Zoom and translates to your headphones.
+
+"Translator (Answer UK->EN)": Runs the 🟣 answer profile [cite: config.py]. It listens to your microphone and translates to Zoom's virtual microphone.
+
+Start your conversation. Both windows will show real-time translation logs.
