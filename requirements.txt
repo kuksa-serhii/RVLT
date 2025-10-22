@@ -1,0 +1,7 @@
+pyyaml
+python-dotenv
+loguru
+sounddevice
+numpy
+asyncio
+azure-cognitiveservices-speech
