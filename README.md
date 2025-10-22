@@ -26,16 +26,16 @@ pip install -r requirements.txt
 
 ## 2. Audio Drivers:
 ```
-Install two virtual audio cables: VB-CABLE A and VB-CABLE B from VB-Audio Software.
+Install two virtual audio cables: VB-CABLE A and VB-CABLE B from [VB-Audio Software](https://vb-audio.com/Cable/)
 
 
-### 1. Configure Zoom / Teams / Meet...:
+1. Configure Zoom / Teams / Meet...:
 
 Speaker (Output): CABLE Input (VB-Audio Virtual Cable) (This is Cable A)
 
 Microphone (Input): CABLE-B Input (VB-Audio Cable B)
 
-### 2. Configure Windows ("Listen" to Original Audio):
+2. Configure Windows ("Listen" to Original Audio):
 
 Go to Sound Control Panel $\to$ Recording tab.
 
@@ -48,24 +48,27 @@ Set "Playback through" to your physical headphones (e.g., Навушники (2-
 This routes Zoom's audio to both the AI (for translation) and your ears (for the original voice).
 ```
 ## 3. ⚙️ Configuration & Diagnostics
-```
+
 ### 1. Check Config:
 
 Verify your device names in app/config.py. The script uses partial names to find them.
-
+```
 app/config.py (Check these names)
 
 PROFILES = {
     "understand": {"input_device": "CABLE Output (VB-Audio Virtual ", "output_device": "Навушники (2- HD65)", ... },
     "answer":     {"input_device": "Головной телефон (2- HD65)",   "output_device": "CABLE-B Input (VB-Audio", ... }
 }
-
+```
 
 ### 2. Run Diagnostics (If needed):
+```
+python -m app.diag_audio --list (Shows exact names to use in config) 
+python -m app.diag_audio --full (It checks both the headphone output and microphone input from your profiles.)
+python -m app.diag_audio --test-headphones  (checks understand profile output)
+python -m app.diag_audio --test-mic  (checks answer profile input)
+python -m app.diag_audio --test-zoom-in  (checks understand profile input).
 
-List devices: python -m app.diag_audio --list (Shows exact names to use in config) 
-
-Full test: python -m app.diag_audio --full (Tests both headphone output and mic input) 
 ```
 ## 4. 🚀 Launch
 

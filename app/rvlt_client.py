@@ -1,40 +1,108 @@
-# rvlt_client.py
 import asyncio
 import sys
 import numpy as np
 import sounddevice as sd
-import argparse  # Новий імпорт
+import argparse  # Added for profile loading
 from queue import Queue
 from loguru import logger
 
 from azure.cognitiveservices.speech import (
     SpeechConfig,
-    AudioConfig,
-    SpeechRecognitionEventArgs,
-    TranslationRecognizer,
-    TranslationSynthesisEventArgs,
-    AudioStreamFormat,
-    StreamContainerFormat,
-    PullAudioInputStream,
     ResultReason,
     CancellationDetails,
-    SpeechSynthesisOutputFormat  # Новий імпорт
+    SpeechSynthesisOutputFormat,
+    SpeechRecognitionEventArgs
 )
+# --- MODIFIED IMPORT (Audio) ---
+# Import audio-specific classes from the .audio submodule
+from azure.cognitiveservices.speech.audio import (
+    AudioConfig,
+    AudioStreamFormat,
+    # StreamContainerFormat, # This class name changed or is no longer used here. Removing.
+    PullAudioInputStream
+)
+# --- END MODIFICATION ---
+
+# --- MODIFIED IMPORT (Translation) ---
+# We now import translation-specific classes from the .translation submodule
+from azure.cognitiveservices.speech.translation import (
+    SpeechTranslationConfig,  # <-- IMPORT THE CORRECT CONFIG CLASS
+    TranslationRecognizer,
+    TranslationSynthesisEventArgs
+)
+# --- END MODIFICATION ---
 
 from app.config import settings
 from app.utils import find_device_index, play_audio_blocking
 
-# --- Налаштування логування (без змін) ---
-# ... (залишається як було) ...
+# --- Logger Setup ---
+logger.add(
+    "rvlt_run.log",
+    rotation="10 MB",
+    retention=5,
+    level=settings.logging.get("level", "INFO"),
+    enqueue=True
+)
 
-# --- SoundDevice Stream Class (без змін) ---
+# --- SoundDevice Stream Class (Restored) ---
 class SoundDeviceStream(PullAudioInputStream):
-    # ... (залишається як було) ...
+    """
+    Implements PullAudioInputStream to feed audio data from sounddevice to the Azure SDK.
+    This class was missing its body, causing the IndentationError.
+    """
+    def __init__(self, device_idx: int, sr: int, format: AudioStreamFormat):
+        super().__init__(format)
+        self.device_idx = device_idx
+        self.sr = sr
+        self.queue = Queue()
+        # Block size read by sounddevice
+        self.blocksize = int(sr * settings.audio.get("frame_ms", 20) / 1000)
+        self.stream = None
 
-# --- Main Logic ---
+    def read(self, size: int) -> bytes:
+        """ SDK calls this method when it needs data. """
+        try:
+            # Wait for data. If queue is empty, return silence (b'').
+            chunk = self.queue.get(timeout=0.01) 
+            return chunk if len(chunk) <= size else chunk[:size]
+        except:
+            # On timeout, return silence of the requested size
+            return b'\x00' * size
+
+    def _callback(self, indata, frames, time, status):
+        """ Callback for sounddevice InputStream. """
+        if status:
+            logger.warning(f"Audio stream status: {status}")
+        
+        # PCM16, 1 channel. Send as bytes.
+        self.queue.put(indata.tobytes())
+
+    def start_stream(self):
+        """ Start the sounddevice capture stream. """
+        wa_in = sd.WasapiSettings(exclusive=False)
+        self.stream = sd.InputStream(
+            samplerate=self.sr, 
+            channels=1, 
+            device=self.device_idx, 
+            dtype='int16', 
+            blocksize=self.blocksize,
+            callback=self._callback,
+            extra_settings=wa_in
+        )
+        self.stream.start()
+        logger.info(f"[Audio In] Started capture from index {self.device_idx} @ {self.sr} Hz (WASAPI shared)")
+
+    def stop_stream(self):
+        """ Stop the stream. """
+        if self.stream and self.stream.active:
+            self.stream.stop(); self.stream.close()
+        logger.info("[Audio In] Stopped capture stream.")
+
+
+# --- Main Logic (Profile-based) ---
 
 async def main():
-    # --- 1. Парсинг аргументів ---
+    # --- 1. Parse Arguments ---
     parser = argparse.ArgumentParser(description="Real-time Voice Translator Client")
     parser.add_argument(
         "--profile", 
@@ -45,7 +113,7 @@ async def main():
     )
     args = parser.parse_args()
     
-    # Завантажуємо конфігурацію для обраного профілю
+    # Load configuration for the chosen profile
     try:
         profile = settings.profiles[args.profile]
         logger.info(f"Loading profile: [{args.profile.upper()}] - {profile['description']}")
@@ -56,7 +124,7 @@ async def main():
     # --- 2. Audio & Config Setup ---
     device_sr = settings.audio.get("sample_rate", 48000)
     in_name = profile["input_device"]
-    output_device_name = profile["output_device"] # Потрібен для синтезу
+    output_device_name = profile["output_device"] # Needed for synthesis
     
     try:
         in_idx = find_device_index(
@@ -64,7 +132,7 @@ async def main():
             "input", 
             prefer_hostapi=settings.audio.get("prefer_hostapi")
         )
-        # Перевіряємо вихідний пристрій одразу
+        # Check output device availability immediately
         find_device_index(
             output_device_name, 
             "output", 
@@ -82,27 +150,31 @@ async def main():
     if not speech_key or not speech_region:
          raise RuntimeError("Missing AZURE_SPEECH_KEY or AZURE_SPEECH_REGION in .env")
 
-    speech_config = SpeechConfig(subscription=speech_key, region=speech_region)
+    # --- MODIFICATION ---
+    # Use SpeechTranslationConfig for translation, not base SpeechConfig
+    speech_config = SpeechTranslationConfig(subscription=speech_key, region=speech_region)
+    # --- END MODIFICATION ---
     
-    # Налаштовуємо КОНКРЕТНИЙ переклад
+    # Configure the SPECIFIC translation
+    # This line will now work correctly
     speech_config.add_target_language(profile["target_lang"]) 
     speech_config.set_property_by_name(f"SpeechSynthesisVoiceName.{profile['target_lang']}", profile["tts_voice"])
     speech_config.set_speech_synthesis_output_format(SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm)
 
-    # --- 4. Audio Stream Setup (без змін) ---
+    # --- 4. Audio Stream Setup ---
     audio_format = AudioStreamFormat(
         samples_per_second=device_sr,
         bits_per_sample=16,
-        channels=1,
-        container_format=StreamContainerFormat.RAW_PCM
+        channels=1
+        # We don't specify container_format for PullAudioInputStream
     )
     audio_stream_source = SoundDeviceStream(in_idx, device_sr, audio_format)
     audio_config = AudioConfig(stream=audio_stream_source)
     
-    # --- 5. Обробники подій (визначені всередині main) ---
+    # --- 5. Event Handlers (defined inside main) ---
     
     def recognized(evt: SpeechRecognitionEventArgs):
-        """ Обробник події, коли переклад завершено. """
+        """ Handles the 'recognized' event. """
         result = evt.result
         
         if result.reason == ResultReason.Translated:
@@ -114,21 +186,21 @@ async def main():
 
         elif result.reason == ResultReason.RecognizedSpeech:
             logger.debug(f"[Recognizing] {result.text} (Intermediate)")
-        elif result.reason == ResultReason.NoMatch:
+        elif result.season == ResultReason.NoMatch:
             logger.debug("No speech could be recognized.")
 
     def synthesis_handler(evt: TranslationSynthesisEventArgs):
-        """ Обробка події синтезу мови (коли приходить аудіо). """
+        """ Handles the 'synthesis' event (when audio arrives). """
         if evt.result.audio and evt.result.audio_length > 0:
             audio_data = evt.result.audio
             audio_np = np.frombuffer(audio_data, dtype=np.int16)
             tts_sample_rate = 24000 # Azure TTS Neural Voices
             
-            # Відтворення аудіо на пристрій, вказаний у ПРОФІЛІ
+            # Play audio to the device specified in the PROFILE
             play_audio_blocking(
                 audio_np, 
                 sr=tts_sample_rate, 
-                device_name=output_device_name # Використовуємо змінну з main()
+                device_name=output_device_name # Use variable from main()
             )
             logger.debug(f"[TTS] Played {evt.result.audio_length} bytes of audio.")
 
@@ -147,10 +219,10 @@ async def main():
         audio_config=audio_config
     )
     
-    # Встановлюємо мову розпізнавання з профілю (надійніше, ніж auto-detect)
+    # Set recognition language from profile (more reliable than auto-detect)
     recognizer.speech_recognition_language = profile["source_lang"]
 
-    # Підписка на події
+    # Subscribe to events
     recognizer.recognized.connect(recognized)
     recognizer.session_started.connect(session_started)
     recognizer.canceled.connect(canceled)
@@ -166,7 +238,7 @@ async def main():
         while True:
             await asyncio.sleep(0.5)
     except (asyncio.CancelledError, KeyboardInterrupt):
-        pass # Захоплюємо Ctrl+C
+        pass # Handle Ctrl+C gracefully
 
     finally:
         logger.info(f"Stopping recognition for profile [{args.profile.upper()}]...")
@@ -181,3 +253,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.exception(e)
         sys.exit(1)
+

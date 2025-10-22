@@ -26,7 +26,7 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         
         # Вихід: Ваші фізичні навушники
         # (Назва з вашого скріншоту image_199adc.png)
-        "output_device": "Навушники (2- HD65)",
+        "output_device": "Наушники (2- HD65)",
         
         # Мова, яку ми очікуємо почути (для розпізнавання)
         "source_lang": "en-GB", 
@@ -43,11 +43,11 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         
         # Вхід: Ваш фізичний мікрофон
         # (Назва з вашого скріншоту image_199adc.png)
-        "input_device": "Головной телефон (2- HD65)",
+        "input_device": "Набор микрофонов (Realtek(R) Au", #"Головной телефон (2- HD65)",
         
         # Вихід: Віртуальний кабель "B", який Zoom слухає як мікрофон
         # (Потрібно встановити VB-CABLE B)
-        "output_device": "CABLE-B Input (VB-Audio", 
+        "output_device": "CABLE-B Input (VB-Audio ", 
         
         # Мова, якою ви говорите
         "source_lang": "uk-UA",
