@@ -43,7 +43,7 @@ class SoundDeviceStream(PullAudioInputStream):
     from a sounddevice.InputStream into the Azure Speech SDK.
     """
     def __init__(self, device_idx: int, sr: int, format: AudioStreamFormat):
-        super().__init__(format)
+        # Спочатку ініціалізуйте всі атрибути 'self'
         self.device_idx = device_idx
         self.sr = sr
         self.queue = Queue()
@@ -51,6 +51,9 @@ class SoundDeviceStream(PullAudioInputStream):
         self.blocksize = int(sr * settings.audio.get("frame_ms", 20) / 1000)
         self.stream = None
         logger.debug(f"Stream initialized. SR={sr}Hz, Blocksize={self.blocksize} samples.")
+        
+        # Викличте super().__init__ в кінці, передавши йому необхідний callback
+        super().__init__(pull_stream_callback=self.read)
 
     def read(self, size: int) -> bytes:
         """
@@ -156,7 +159,7 @@ async def main():
     
     # Configure the specific translation
     speech_config.add_target_language(profile["target_lang"])
-    speech_config.voice_name(profile["tts_voice"])
+    speech_config.voice_name = profile["tts_voice"]
 
     # --- 4. Audio Stream Setup ---
     audio_format = AudioStreamFormat(
@@ -231,7 +234,7 @@ async def main():
     logger.info(f"Starting continuous recognition for profile [{args.profile.upper()}]...")
     
     audio_stream_source.start_stream()
-    await recognizer.start_continuous_recognition_async()
+    recognizer.start_continuous_recognition_async()
 
     try:
         while True:
@@ -241,7 +244,7 @@ async def main():
 
     finally:
         logger.info(f"Stopping recognition for profile [{args.profile.upper()}]...")
-        await recognizer.stop_continuous_recognition_async()
+        recognizer.stop_continuous_recognition_async().get()
         audio_stream_source.stop_stream()
         logger.info("Cleanup complete.")
 
