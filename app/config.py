@@ -1,4 +1,3 @@
-# app/config.py
 from __future__ import annotations
 
 import os
@@ -7,55 +6,63 @@ from typing import Any, Dict
 
 from dotenv import load_dotenv
 
-# Завантажуємо .env для доступу до змінних середовища
+# Load .env file for environment variables
 load_dotenv()
 
-# Корінь проекту
+# Project root
 ROOT = Path(__file__).resolve().parent
 
-# --- Словник профілів запуску ---
-# Кожен профіль описує один потік перекладу
+# --- Profile Dictionary ---
+# Each profile defines one translation stream (direction).
+# We use partial names here, which app/utils.py will find.
 
 PROFILES: Dict[str, Dict[str, Any]] = {
     # -------------------------------------------------------------------------
     "understand": {
-        "description": "🟢 Я СЛУХАЮ (EN -> UK). Слухає Zoom, перекладає мені в навушники.",
-        # Вхід: Віртуальний кабель, куди Zoom/Teams надсилає аудіо
-        # (Налаштовується в Zoom/Teams Output)
-        "input_device": "CABLE Output (VB-Audio Virtual ",
+        "description": "UNDERSTAND (EN -> UK). Listens to Zoom/Teams, speaks to headphones.",
         
-        # Вихід: Ваші фізичні навушники
-        # (Назва з вашого скріншоту image_199adc.png)
+        # Input: The virtual cable where Zoom/Teams sends its audio.
+        # This is the "Recording" device from your WASAPI list [43].
+        "input_device": "CABLE-A Output (VB-Audio Virtual Cable A)",
+        
+        # Output: Your physical headphones.
+        # This is the "Playback" device from your WASAPI list [39].
         "output_device": "Наушники (2- HD65)",
         
-        # Мова, яку ми очікуємо почути (для розпізнавання)
+        # Sample Rate: Must match what the WASAPI devices support.
+        "sample_rate": 48000,
+        
+        # Language we expect to hear (recognition)
         "source_lang": "en-GB", 
         
-        # Мова, на яку перекладаємо
+        # Language to translate to
         "target_lang": "uk",
         
-        # Голос для синтезу перекладу (український)
+        # Voice for the synthesized translation (Ukrainian)
         "tts_voice": "uk-UA-AlinaNeural",
     },
     # -------------------------------------------------------------------------
     "answer": {
-        "description": "🟣 Я ГОВОРЮ (UK -> EN). Слухає мій мікрофон, перекладає в Zoom/Teams.",
+        "description": "ANSWER (UK -> EN). Listens to your mic, speaks to Zoom/Teams.",
         
-        # Вхід: Ваш фізичний мікрофон
-        # (Назва з вашого скріншоту image_199adc.png)
-        "input_device": "Набор микрофонов (Realtek(R) Au", #"Головной телефон (2- HD65)",
+        # Input: Your physical microphone.
+        # This is your selected mic from the WASAPI list [42].
+        "input_device": "Набор микрофонов (Realtek(R) Audio)",
         
-        # Вихід: Віртуальний кабель "B", який Zoom слухає як мікрофон
-        # (Потрібно встановити VB-CABLE B)
-        "output_device": "CABLE-B Input (VB-Audio ", 
+        # Output: The virtual cable that Zoom/Teams listens to (as its mic).
+        # This is the "Playback" device from your WASAPI list [36].
+        "output_device": "CABLE-B Input (VB-Audio Virtual Cable B)", 
         
-        # Мова, якою ви говорите
+        # Sample Rate: Must match what the WASAPI devices support.
+        "sample_rate": 48000,
+        
+        # Language you speak
         "source_lang": "uk-UA",
         
-        # Мова, на яку перекладаємо
+        # Language to translate to
         "target_lang": "en",
         
-        # Голос для синтезу перекладу (британський)
+        # Voice for the synthesized translation (British English)
         "tts_voice": "en-GB-RyanNeural",
     }
     # -------------------------------------------------------------------------
@@ -64,32 +71,31 @@ PROFILES: Dict[str, Dict[str, Any]] = {
 
 class _Settings:
     """
-    Легкий об'єкт налаштувань. Завантажує параметри з вбудованих значень
-    та перезаписує їх змінними середовища (.env).
+    Lightweight settings object. Loads parameters from built-in values
+    and overwrites them with environment variables (.env).
     """
 
     def __init__(self) -> None:
         self._data: Dict[str, Any] = {
             "audio": {
-                # Спільні налаштування
-                "sample_rate": 48000,
+                # Common audio settings
                 "frame_ms": 20,
-                "prefer_hostapi": "Windows WASAPI"
+                "prefer_hostapi": "Windows WASAPI" # We MUST use WASAPI
             },
             
-            # --- ПІДКЛЮЧЕННЯ ДО AZURE SPEECH SERVICE ---
+            # --- AZURE SPEECH SERVICE CONNECTION ---
             "azure": {
                 "speech_key": os.getenv("AZURE_SPEECH_KEY", ""),
-                "speech_region": os.getenv("AZURE_SPEECH_REGION", "uksouth"), #
+                "speech_region": os.getenv("AZURE_SPEECH_REGION", "uksouth"),
             },
             
-            # --- ЛОГУВАННЯ ---
+            # --- LOGGING ---
             "logging": {
-                "level": "INFO",
+                "level": "INFO", # DEBUG | INFO | WARNING | ERROR
             },
         }
     
-    # Додаємо профілі до об'єкта
+    # Add profiles to the settings object
     @property
     def profiles(self) -> Dict[str, Dict[str, Any]]:
         return PROFILES
