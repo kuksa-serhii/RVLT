@@ -39,7 +39,7 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "target_lang": "uk",
         
         # Voice for the synthesized translation (Ukrainian)
-        "tts_voice": "uk-UA-AlinaNeural",
+        "tts_voice": "uk-UA-PolinaNeural",
     },
     # -------------------------------------------------------------------------
     "answer": {
